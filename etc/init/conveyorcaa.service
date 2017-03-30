@@ -1,0 +1,15 @@
+[Unit]
+Description=conveyorcaa daemon service
+After=network.target
+
+[Service]
+EnvironmentFile=-/etc/conveyorcaa/conveyorcaa.conf
+ExecStart=/usr/bin/conveyorcaa
+ExecStop=/bin/kill -s QUIT $MAINPID
+Type=simple
+KillMode=control-group
+Restart=always
+RestartSec=15s
+
+[Install]
+WantedBy=multi-user.target
