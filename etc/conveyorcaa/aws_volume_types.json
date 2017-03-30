@@ -1,0 +1,30 @@
+{
+    "volume_types":
+    [
+        {
+            "name": "standard",
+            "id": "standard",
+            "description": "Previous generation HDD"
+         },
+         {
+            "name": "io1",
+            "id": "io1",
+            "description": "Highest-performance SSD volume designed for mission-critical applications"
+         },
+         {
+            "name": "gp2",
+            "id": "gp2",
+            "description": "General purpose SSD volume that balances price and performance for wide variety of transactional workloads"
+          },
+          {
+            "name": "sc1",
+            "id": "sc1",
+            "description": "Lowest cost HDD volume designed for less frequently accessed workloads"
+          },
+          {
+            "name": "st1",
+            "id": "st1",
+            "description": "Low cost HDD volume designed for frequently accessed, throughput-intensive workload"
+           }
+       ]
+}
