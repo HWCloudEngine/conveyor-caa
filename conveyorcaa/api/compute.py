@@ -16,6 +16,7 @@
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import importutils
+from novaclient import exceptions as novaclient_exceptions
 
 import webob
 
@@ -44,19 +45,35 @@ class ContainerController(wsgi.Application):
         compute_driver_class = importutils.import_class(CONF.compute_driver)
         self.compute_driver = compute_driver_class()
 
-    def show(self, server_id):
-        pass
+    def show(self,  req, server_id):
+        LOG.debug('Show server %s info' % server_id)
+        try:
+            context = req.environ.get('conveyorcaa.context', None)
+            instance = self.compute_driver.get_instance(context, server_id)
+            return instance
+        except Exception as e:
+            raise novaclient_exceptions.NotFound()
 
-    def list(self):
+    def list(self, req):
         '''Query all instances'''
         LOG.debug(_('Query all instance start'))
-        self.compute_driver.list_instances()
+        context = req.environ.get('conveyorcaa.context', None)
+        return self.compute_driver.list_instances(context)
 
-    def get_flavor(self, flavor_id):
-        pass
+    def get_flavor(self, req, flavor_id):
+        LOG.debug('Show flavor %s info' % flavor_id)
+        try:
+            context = req.environ.get('conveyorcaa.context', None)
+            flavor = self.compute_driver.show_instance_type(context,
+                                                            flavor_id)
+            return flavor
+        except Exception as e:
+            raise novaclient_exceptions.NotFound()
 
-    def list_flavor(self):
-        pass
+    def list_flavor(self, req):
+        LOG.debug(_('Query all flavor start'))
+        context = req.environ.get('conveyorcaa.context', None)
+        return self.compute_driver.get_all_instance_types(context)
 
     def get_keypair(self, keypair_id):
         pass

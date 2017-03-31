@@ -62,6 +62,22 @@ class VolumeError(ConveyorCaaException):
     msg_fmt = _("Query volumes failed.")
 
 
+class InstanceError(ConveyorCaaException):
+    msg_fmt = _("Query instance failed.")
+
+
+class FlavorError(ConveyorCaaException):
+    msg_fmt = _("Query flavor failed.")
+
+
+class FlavorNotFound(ConveyorCaaException):
+    msg_fmt = _("can not find flavor %(flavor_id)s.")
+
+
+class InstanceNotFound(ConveyorCaaException):
+    msg_fmt = _("can not find flavor %(instance_id)s.")
+
+
 class ProviderImageNotFound(ConveyorCaaException):
     msg_fmt = _("Provider delete volume failed,error msg: %(reason)s")
 

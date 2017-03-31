@@ -29,8 +29,41 @@ from oslo_serialization import jsonutils
 from oslo_utils import excutils
 import re
 import string
+import uuid
 
 LOG = logging.getLogger(__name__)
+
+
+AWS_INSTANCE_PENDING = 0
+AWS_INSTANCE_RUNNING = 16
+AWS_INSTANCE_SHUTTING_DOWN = 32
+AWS_INSTANCE_TERMINATED = 48
+AWS_INSTANCE_STOPPING = 64
+AWS_INSTANCE_STOPPED = 80
+
+NOSTATE = 0x00
+RUNNING = 0x01
+PAUSED = 0x03
+SHUTDOWN = 0x04  # the VM is powered off
+CRASHED = 0x06
+SUSPENDED = 0x07
+
+AWS_POWER_STATE = {
+    AWS_INSTANCE_RUNNING: 0x01,
+    AWS_INSTANCE_STOPPED: 0x04,
+    AWS_INSTANCE_TERMINATED: 0x06,
+    AWS_INSTANCE_PENDING: 0x00,
+    AWS_INSTANCE_SHUTTING_DOWN:  0x00,
+    AWS_INSTANCE_STOPPING: 0x00
+}
+AWS_VM_STATE = {
+    AWS_INSTANCE_RUNNING: 'active',
+    AWS_INSTANCE_PENDING: 'building',
+    AWS_INSTANCE_STOPPED: 'stopped',
+    AWS_INSTANCE_TERMINATED: 'deleted',
+    AWS_INSTANCE_SHUTTING_DOWN: 'active',
+    AWS_INSTANCE_STOPPING: 'active'
+}
 
 
 class AwsComputeDriver(driver.ComputeDriver):
@@ -113,33 +146,6 @@ class AwsComputeDriver(driver.ComputeDriver):
         LOG.debug('List_instance_uuids: %s' % uuids)
         return uuids
 
-    def list_instances(self):
-        """List VM instances from all nodes.
-
-        :return: list of instance id. e.g.['id_001', 'id_002', ...]
-        """
-        instances = []
-        context = req_context.RequestContext(is_admin=True,
-                                             project_id='default')
-        try:
-            servers = self.aws_client.get_aws_client(context)\
-                                     .describe_instances()
-        except botocore.exceptions.ClientError as e:
-            reason = e.response.get('Error', {}).get('Message', 'Unkown')
-            LOG.warn('List instances failed, the error is: %s' % reason)
-            return instances
-        for server in servers:
-            tags = server.get('Tags')
-            server_name = None
-            for tag in tags:
-                if tag.get('key') == 'Name':
-                    server_name = tag.get('Value')
-                    break
-            if server_name:
-                instances.append(server_name)
-        LOG.debug('List_instance: %s' % instances)
-        return instances
-
     def attach_volume(self, context, volume_id, instance_id,
                       mountpoint=None,
                       disk_bus=None, device_type=None,
@@ -214,3 +220,167 @@ class AwsComputeDriver(driver.ComputeDriver):
             with excutils.save_and_reraise_exception():
                 LOG.error(_LE('Error from detach volume '
                               'Error=%(e)s'), {'e': e})
+
+    def show_instance_type(self, instance_type_id, ctxt=None):
+        instance_type = self._aws_client.get_aws_client(ctxt). \
+            describe_instance_type(instance_type_id)
+        return self._format_instance_type(instance_type)
+
+    def get_all_instance_types(self, ctxt=None, **kwargs):
+        aws_types = self._aws_client.get_aws_client(ctxt). \
+            describe_instance_types(**kwargs)
+        instances_types = []
+        for aws_type in aws_types:
+            instance_type = self._format_instance_type(aws_type)
+            instances_types.append(instance_type)
+        return instances_types
+
+    def _format_instance_type(self, aws_instance_type):
+        instance_type = {}
+        instance_type['id'] = aws_instance_type.get('id')
+        instance_type['name'] = aws_instance_type.get('name')
+        instance_type['vcpus'] = aws_instance_type.get('vcpus')
+        instance_type['ram'] = aws_instance_type.get('ram')
+        instance_type['os-flavor-access:is_public'] = 'true'
+        return instance_type
+
+    def get_instance(self, context, instance_id):
+        LOG.debug('Get info of instance: %s' % instance_id)
+        kwargs = {'InstanceIds': [instance_id]}
+        try:
+            instances_tmp = self.aws_client.get_aws_client(context)\
+                                           .describe_instances(**kwargs)
+            if instances_tmp:
+                return self._format_instance(instances_tmp)
+        except Exception as e:
+            LOG.error(_LE('Get info of instance %(instance_id) error '
+                          'Error=%(e)s'),
+                      {'instance_id': instance_id,
+                       'e': e})
+            raise exception_ex.InstanceNotFound(instance_id=instance_id)
+
+    def list_instances(self, context):
+        LOG.debug('List instance info')
+        try:
+            instances = []
+            instances_tmps = self.aws_client.get_aws_client(context)\
+                                            .describe_instances()
+            for ins in instances_tmps:
+                instance = self._format_instance(ins)
+                instances.append(instance)
+                return instances
+        except Exception as e:
+            LOG.error(_LE('list instance error '
+                          'Error=%(e)s'), {'e': e})
+            raise exception_ex.InstanceError()
+
+    def _format_instance(self, context, instance):
+        instance_dict = {}
+        tags = instance.get('Tags')
+        if tags:
+            for tag in tags:
+                if tag.get('Key') == 'Name':
+                    instance_dict['name'] = tag.get('Value')
+                    break
+        instance_dict['id'] = instance.get('InstanceId')
+        instance_dict['OS-EXT-SRV-ATTR:ramdisk_id'] = instance.get(
+            'RamdiskId')
+        instance_dict['updated'] = None
+        instance_dict['hostId'] = instance.get('Placement', {}) \
+                                          .get('HostId', None)
+        instance_dict['OS-EXT-SRV-ATTR:host'] = None
+        nics = instance.get('NetworkInterfaces', None)
+        if nics:
+            instance_dict['addresses'] = self._format_address(nics)
+        instance_dict['links'] = []
+        instance_dict['tags'] = instance.get('Tags', [])
+        instance_dict['key_name'] = instance.get('KeyName')
+        instance_dict['image'] = ''
+        userdata = self.aws_client.get_aws_client(context) \
+                                  .describe_instance_attribute(
+            instance.get('InstanceId'), Attribute='userData').get('UserData',
+                                                                  {})
+        instance_dict['OS-EXT-SRV-ATTR:user_data'] = userdata.get('Value')
+        instance_dict['OS-EXT-STS:task_state'] = None
+        instance_dict['OS-EXT-STS:vm_state'] = AWS_VM_STATE.get(
+            instance.get('State').get('Code'))
+        instance_dict['OS-EXT-STS:power_state'] = AWS_POWER_STATE.get(
+            instance.get('State').get('Code'))
+        instance_dict['OS-EXT-SRV-ATTR:instance_name'] = ''
+        instance_dict['OS-EXT-SRV-ATTR:root_device_name'] = instance.get(
+            'RootDeviceName')
+        instance_dict['OS-SRV-USG:launched_at'] = instance.get('LaunchTime')
+        instance_dict['locked'] = 'false'
+        instance_dict['flavor'] = {'id': instance.get('InstanceType')}
+        securityGroups = instance.get('SecurityGroups')
+        if securityGroups:
+            instance_dict['security_groups'] = self._format_sg(securityGroups)
+        instance_dict['description'] = None
+        instance_dict['OS-EXT-SRV-ATTR:kernel_id'] = instance.get('KernelId')
+        instance_dict['host_status'] = 'UP'
+        instance_dict['OS-EXT-AZ:availability_zone'] = instance.get(
+            'Placement').get('AvailabilityZone')
+        instance_dict['user_id'] = ''
+        instance_dict['OS-EXT-SRV-ATTR:launch_index'] = instance.get(
+            'AmiLaunchIndex')
+        bdms = instance.get('BlockDeviceMappings')
+        if bdms:
+            instance_dict['os-extended-volumes:volumes_attached'] = \
+                self._format_bdms(bdms)
+        else:
+            instance_dict['os-extended-volumes:volumes_attached'] = []
+        instance_dict['created'] = None
+        instance_dict['tenant_id'] = ''
+        instance_dict['OS-DCF:diskConfig'] = ''
+        instance_dict['OS-EXT-SRV-ATTR:hypervisor_hostname'] = ''
+        instance_dict['accessIPv4'] = ''
+        instance_dict['accessIPv6'] = ''
+        instance_dict['OS-EXT-SRV-ATTR:reservation_id'] = ''
+        instance_dict['OS-EXT-SRV-ATTR:hostname'] = ''
+        instance_dict['progress'] = 0
+        instance_dict['config_drive'] = ''
+        instance_dict['OS-SRV-USG:terminated_at'] = None
+        instance_dict['metadata'] = {}
+
+    def _format_bdms(self, bdms):
+        bdm_list = []
+        for bdm in bdms:
+            block_device_mapping = {}
+            block_device_mapping['id'] = bdm.get('Ebs').get('VolumeId')
+            block_device_mapping['delete_on_termination'] = bdm.get(
+                'Ebs').get('DeleteOnTermination')
+            bdm_list.append(block_device_mapping)
+        return bdm_list
+
+    def _format_sg(self, securityGroups):
+        sg_list = []
+        for sg in securityGroups:
+            securityGroup = {}
+            securityGroup['name'] = securityGroups.get('GroupName')
+            securityGroup['id'] = securityGroups.get('GroupId')
+            sg_list.append(securityGroup)
+        return sg_list
+
+    def _format_address(self, nics):
+        address_list = []
+        for nic in nics:
+            address = {}
+            address['OS-EXT-IPS-MAC:mac_addr'] = nic.get('MacAddress')
+            if nic.get('Ipv6Addresses'):
+                address['version'] = 6
+            else:
+                address['version'] = 4
+            address['addr'] = nic.get('PrivateIpAddress')
+            address['OS-EXT-IPS:type'] = 'fixed'
+            address_list.append(address)
+            association = nic.get('Association')
+            if association:
+                f_addr = {}
+                f_addr['OS-EXT-IPS-MAC:mac_addr'] = None
+                f_addr['version'] = 4
+                f_addr['addr'] = association.get('PublicIp')
+                f_addr['OS-EXT-IPS:type'] = 'floating'
+                address_list.append(f_addr)
+        return address_list
+    
+    

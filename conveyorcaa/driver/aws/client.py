@@ -33,6 +33,9 @@ aws_opts = [
     cfg.StrOpt('aws_volume_type_config_path',
                default='/etc/conveyorcaa/aws_volume_types.json',
                help='region value to use to connect to AWS.'),
+    cfg.StrOpt('aws_instance_type_config_path',
+               default='/etc/conveyorcaa/aws_instance_types.json',
+               help='region value to use to connect to AWS.'),
 ]
 
 
@@ -277,6 +280,32 @@ class AwsClientPlugin(object):
             LOG.error(_LE("Query aws volume type %(type)s error: %(error)s"),
                       {'type': volume_type_id, 'error': e})
             raise exception_ex.VolumeTypeNotFoundError(type_id=volume_type_id)
+
+        return type_info
+
+    def describe_instance_types(self, **kwargs):
+
+        file_path = CONF.aws.aws_instance_type_config_path
+        try:
+            content = open(file_path).read()
+            con_json = json.loads(content)
+        except Exception as e:
+            LOG.error(_LE("Query aws instance types error: %s"), e)
+            raise exception_ex.FlavorError()
+
+        return con_json
+
+    def describe_instance_type(self, instance_type_id, **kwargs):
+
+        file_path = CONF.aws.aws_instance_type_config_path
+        try:
+            content = open(file_path).read()
+            con_json = json.loads(content)
+            type_info = con_json.get(instance_type_id, None)
+        except Exception as e:
+            LOG.error(_LE("Query aws instance type %(type)s error: %(error)s"),
+                      {'type': instance_type_id, 'error': e})
+            raise exception_ex.FlavorNotFound(flavor_id=instance_type_id)
 
         return type_info
 
