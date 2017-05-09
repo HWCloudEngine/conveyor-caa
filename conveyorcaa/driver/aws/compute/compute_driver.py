@@ -251,7 +251,7 @@ class AwsComputeDriver(driver.ComputeDriver):
             instances_tmp = self.aws_client.get_aws_client(context)\
                                            .describe_instances(**kwargs)
             if instances_tmp:
-                return self._format_instance(instances_tmp)
+                return self._format_instance(context, instances_tmp)
         except Exception as e:
             LOG.error(_LE('Get info of instance %(instance_id) error '
                           'Error=%(e)s'),
@@ -266,7 +266,7 @@ class AwsComputeDriver(driver.ComputeDriver):
             instances_tmps = self.aws_client.get_aws_client(context)\
                                             .describe_instances()
             for ins in instances_tmps:
-                instance = self._format_instance(ins)
+                instance = self._format_instance(context, ins)
                 instances.append(instance)
                 return instances
         except Exception as e:
@@ -341,6 +341,7 @@ class AwsComputeDriver(driver.ComputeDriver):
         instance_dict['config_drive'] = ''
         instance_dict['OS-SRV-USG:terminated_at'] = None
         instance_dict['metadata'] = {}
+        return instance_dict
 
     def _format_bdms(self, bdms):
         bdm_list = []
@@ -382,5 +383,3 @@ class AwsComputeDriver(driver.ComputeDriver):
                 f_addr['OS-EXT-IPS:type'] = 'floating'
                 address_list.append(f_addr)
         return address_list
-    
-    
