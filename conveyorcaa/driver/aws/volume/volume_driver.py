@@ -136,3 +136,4 @@ class AwsVolumeDriver(driver.VolumeDriver):
         volume_type['qos_specs_id'] = \
             aws_volume_type.get('qos_specs_id', None)
         volume_type['description'] = aws_volume_type.get('description', None)
+        return volume_type

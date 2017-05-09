@@ -104,6 +104,7 @@ class AwsNetworkDriver(object):
             rules.append(rule)
 
         sec['security_group_rules'] = rules
+        return sec
 
     def _format_port(self, port):
         op_port = []

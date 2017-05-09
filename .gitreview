@@ -1,7 +1,7 @@
 [gerrit]
-host=202.96.135.235 
-port=39418  
+host=59.36.10.18
+port=39418
 project=Hybrid-Cloud/conveyor-caa
-defaultbranch=master  
-defaultremote=gerrit  
-defaultrebase=0  
+defaultbranch=master
+defaultremote=gerrit
+defaultrebase=0
